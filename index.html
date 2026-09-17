@@ -4,11 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Meditations</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f5f0e6'/%3E%3Ctext x='50' y='72' font-family='Georgia,serif' font-size='72' text-anchor='middle' fill='%234a453e' font-style='italic'%3EM%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23f5f0e6'/%3E%3Ccircle cx='256' cy='300' r='90' fill='%23e8a54a'/%3E%3Cline x1='60' y1='360' x2='452' y2='360' stroke='%238a6e4b' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23f5f0e6'/%3E%3Ccircle cx='256' cy='300' r='90' fill='%23e8a54a'/%3E%3Cline x1='60' y1='360' x2='452' y2='360' stroke='%238a6e4b' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
 <meta name="theme-color" content="#f5f0e6">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Meditations">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root {
     --bg: #f5f0e6;
@@ -155,7 +157,10 @@
 
 <header>
   <div class="brand">Meditations</div>
-  <button class="menu-btn" onclick="openMenu()">Menu</button>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <span id="driveStatus" style="font-size:11px; color: var(--ink-faint); font-style: italic; display:none;">☁ synced</span>
+    <button class="menu-btn" onclick="openMenu()">Menu</button>
+  </div>
 </header>
 
 <div class="today-block">
@@ -181,6 +186,9 @@
 <div class="menu-overlay" id="menuOverlay" onclick="if(event.target===this)closeMenu()">
   <div class="menu-panel">
     <button class="menu-item" onclick="goToday()">Jump to today</button>
+    <button class="menu-item" id="driveConnectBtn" onclick="connectDrive()">Connect Google Drive</button>
+    <button class="menu-item" id="driveSyncBtn" onclick="syncToDrive()" style="display:none;">Sync to Drive now</button>
+    <button class="menu-item" id="driveDisconnectBtn" onclick="disconnectDrive()" style="display:none;">Disconnect Drive</button>
     <button class="menu-item" onclick="exportCurrent()">Export current day</button>
     <button class="menu-item" onclick="exportAll()">Export all entries</button>
     <button class="menu-item danger" onclick="wipeAll()">Delete everything</button>
@@ -398,6 +406,7 @@ function setupEditor() {
     saveTimer = setTimeout(async () => {
       await saveEntry(viewingDate, editor.value);
       showSaved();
+      syncEntryDebounced(viewingDate);
     }, 500);
   });
 }
@@ -453,12 +462,166 @@ async function wipeAll() {
   renderPast();
 }
 
+// ---- Google Drive integration ----
+const GOOGLE_CLIENT_ID = '802912635112-tpagttuc8g89te1cer7mrg2jldqin6qe.apps.googleusercontent.com';
+const DRIVE_FOLDER_NAME = 'Meditations';
+let driveToken = null;
+let driveFolderId = null;
+let driveSyncTimer = null;
+
+function isDriveConnected() { return !!localStorage.getItem('drive_token'); }
+
+function updateDriveUI() {
+  const connected = isDriveConnected();
+  document.getElementById('driveConnectBtn').style.display = connected ? 'none' : 'block';
+  document.getElementById('driveSyncBtn').style.display = connected ? 'block' : 'none';
+  document.getElementById('driveDisconnectBtn').style.display = connected ? 'block' : 'none';
+  document.getElementById('driveStatus').style.display = connected ? 'inline' : 'none';
+}
+
+function connectDrive() {
+  closeMenu();
+  if (!window.google?.accounts?.oauth2) {
+    alert('Google sign-in still loading. Try again in a moment.');
+    return;
+  }
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: async (resp) => {
+      if (resp.access_token) {
+        driveToken = resp.access_token;
+        localStorage.setItem('drive_token', resp.access_token);
+        localStorage.setItem('drive_token_time', Date.now().toString());
+        updateDriveUI();
+        await ensureFolder();
+        await syncToDrive();
+      }
+    },
+  });
+  tokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+function disconnectDrive() {
+  closeMenu();
+  if (!confirm('Disconnect Google Drive? Your local entries stay.')) return;
+  localStorage.removeItem('drive_token');
+  localStorage.removeItem('drive_token_time');
+  localStorage.removeItem('drive_folder_id');
+  driveToken = null;
+  driveFolderId = null;
+  updateDriveUI();
+}
+
+async function driveApi(url, opts = {}) {
+  const token = localStorage.getItem('drive_token');
+  if (!token) throw new Error('Not connected');
+  opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    localStorage.removeItem('drive_token');
+    updateDriveUI();
+    throw new Error('Session expired. Connect Drive again.');
+  }
+  return r;
+}
+
+async function ensureFolder() {
+  driveFolderId = localStorage.getItem('drive_folder_id');
+  if (driveFolderId) return driveFolderId;
+  // Search for existing folder
+  const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const r = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const data = await r.json();
+  if (data.files && data.files.length > 0) {
+    driveFolderId = data.files[0].id;
+  } else {
+    const cr = await driveApi('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+    });
+    const cd = await cr.json();
+    driveFolderId = cd.id;
+  }
+  localStorage.setItem('drive_folder_id', driveFolderId);
+  return driveFolderId;
+}
+
+async function findDriveFile(name) {
+  const q = encodeURIComponent(`name='${name}' and '${driveFolderId}' in parents and trashed=false`);
+  const r = await driveApi(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const data = await r.json();
+  return data.files?.[0] || null;
+}
+
+async function uploadEntryToDrive(entry) {
+  await ensureFolder();
+  const filename = `${entry.date}.txt`;
+  const body = `${fullDate(entry.date)}\n\n${entry.text || ''}\n`;
+  const existing = await findDriveFile(filename);
+  const metadata = { name: filename, parents: existing ? undefined : [driveFolderId] };
+  const boundary = 'x-med-boundary';
+  const multipart =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify(existing ? { name: filename } : metadata) +
+    `\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\n${body}\r\n--${boundary}--`;
+  const url = existing
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+  await driveApi(url, {
+    method: existing ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: multipart,
+  });
+}
+
+async function syncToDrive() {
+  closeMenu();
+  if (!isDriveConnected()) return;
+  const status = document.getElementById('driveStatus');
+  status.textContent = '☁ syncing…';
+  status.style.display = 'inline';
+  try {
+    const entries = await getAllEntries();
+    for (const e of entries) {
+      if (!e.text?.trim()) continue;
+      await uploadEntryToDrive(e);
+    }
+    status.textContent = '☁ synced';
+  } catch (err) {
+    console.error(err);
+    status.textContent = '☁ sync failed';
+    if (String(err).includes('Session expired')) alert(err.message);
+  }
+}
+
+// Debounced sync — after each save, sync that one file
+async function syncEntryDebounced(date) {
+  if (!isDriveConnected()) return;
+  clearTimeout(driveSyncTimer);
+  driveSyncTimer = setTimeout(async () => {
+    try {
+      const entry = await getEntry(date);
+      if (entry && entry.text?.trim()) {
+        document.getElementById('driveStatus').textContent = '☁ syncing…';
+        await uploadEntryToDrive(entry);
+        document.getElementById('driveStatus').textContent = '☁ synced';
+      }
+    } catch (err) {
+      console.error(err);
+      document.getElementById('driveStatus').textContent = '☁ sync failed';
+    }
+  }, 2000);
+}
+
 // ---- Init ----
 (async function init() {
   db = await openDB();
   viewingDate = todayKey();
   await renderView();
   setupEditor();
+  updateDriveUI();
   setInterval(renderPast, 60000);
   let currentDay = todayKey();
   setInterval(() => {
