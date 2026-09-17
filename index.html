@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Meditations</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f5f0e6'/%3E%3Ctext x='50' y='72' font-family='Georgia,serif' font-size='72' text-anchor='middle' fill='%234a453e' font-style='italic'%3EM%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#f5f0e6">
@@ -30,7 +30,10 @@
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
-  body { padding: 24px 20px 60px; max-width: 680px; margin: 0 auto; }
+  body {
+    padding: calc(24px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+    max-width: 680px; margin: 0 auto;
+  }
   header {
     display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: 32px; padding-bottom: 16px;
@@ -49,13 +52,26 @@
   .menu-btn:hover { background: var(--bg-soft); }
 
   .today-block { margin-bottom: 48px; }
+
+  .date-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 4px; gap: 12px;
+  }
+  .nav-btn {
+    background: none; border: none; color: var(--ink-soft);
+    font-family: inherit; font-size: 22px; cursor: pointer;
+    padding: 4px 10px; border-radius: 4px; line-height: 1;
+    min-width: 32px;
+  }
+  .nav-btn:hover:not(:disabled) { background: var(--bg-soft); color: var(--ink); }
+  .nav-btn:disabled { opacity: 0.25; cursor: default; }
   .date-title {
     font-size: 20px; font-weight: normal; color: var(--ink);
-    margin-bottom: 4px; letter-spacing: 0.2px;
+    letter-spacing: 0.2px; flex: 1; text-align: center;
   }
   .subtitle {
     font-size: 13px; color: var(--ink-soft); font-style: italic;
-    margin-bottom: 16px;
+    margin-bottom: 16px; text-align: center;
   }
   textarea#editor {
     width: 100%; min-height: 320px;
@@ -65,6 +81,7 @@
     padding: 8px 0;
   }
   textarea#editor::placeholder { color: var(--ink-faint); font-style: italic; }
+  textarea#editor:disabled { color: var(--ink-soft); }
   .meta {
     display: flex; justify-content: space-between; align-items: center;
     margin-top: 12px; font-size: 12px; color: var(--ink-soft);
@@ -76,7 +93,7 @@
   .locked-note {
     background: var(--bg-soft); padding: 10px 14px; border-radius: 4px;
     font-size: 13px; color: var(--ink-soft); font-style: italic;
-    margin-top: 12px;
+    margin-top: 12px; text-align: center;
   }
 
   .past-section { margin-top: 24px; }
@@ -87,7 +104,6 @@
   }
   .past-entry {
     margin-bottom: 32px; opacity: 0.75;
-    cursor: pointer;
   }
   .past-entry:hover { opacity: 1; }
   .past-date {
@@ -97,8 +113,7 @@
   .past-preview {
     font-size: 14px; color: var(--ink-soft); line-height: 1.55;
     white-space: pre-wrap; word-wrap: break-word;
-    max-height: 4.5em; overflow: hidden;
-    position: relative;
+    max-height: 4.5em; overflow: hidden; cursor: pointer;
   }
   .past-preview.expanded { max-height: none; }
   .past-entry .status {
@@ -110,7 +125,6 @@
     text-align: center; padding: 20px 0;
   }
 
-  /* Menu overlay */
   .menu-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,0.3); z-index: 100;
@@ -132,7 +146,6 @@
   .menu-item.danger { color: var(--danger); }
 
   @media (max-width: 480px) {
-    body { padding: 20px 16px 60px; font-size: 16px; }
     .date-title { font-size: 18px; }
     textarea#editor { font-size: 16px; min-height: 280px; }
   }
@@ -146,24 +159,30 @@
 </header>
 
 <div class="today-block">
-  <h1 class="date-title" id="todayTitle"></h1>
-  <div class="subtitle">"You could leave life right now. Let that determine what you do and say and think."</div>
+  <div class="date-nav">
+    <button class="nav-btn" id="prevBtn" onclick="navigate(-1)" aria-label="Previous day">‹</button>
+    <h1 class="date-title" id="dateTitle"></h1>
+    <button class="nav-btn" id="nextBtn" onclick="navigate(1)" aria-label="Next day">›</button>
+  </div>
+  <div class="subtitle" id="subtitle">"You could leave life right now. Let that determine what you do and say and think."</div>
   <textarea id="editor" placeholder="Begin..." maxlength="15000"></textarea>
   <div class="meta">
     <span class="word-count" id="wordCount">0 / 1500 words</span>
     <span class="save-indicator" id="saveIndicator">saved</span>
   </div>
+  <div class="locked-note" id="lockedNote" style="display:none;"></div>
 </div>
 
 <div class="past-section">
-  <div class="past-header">Past</div>
+  <div class="past-header">Archive</div>
   <div id="pastList"></div>
 </div>
 
 <div class="menu-overlay" id="menuOverlay" onclick="if(event.target===this)closeMenu()">
   <div class="menu-panel">
+    <button class="menu-item" onclick="goToday()">Jump to today</button>
+    <button class="menu-item" onclick="exportCurrent()">Export current day</button>
     <button class="menu-item" onclick="exportAll()">Export all entries</button>
-    <button class="menu-item" onclick="exportToday()">Export today</button>
     <button class="menu-item danger" onclick="wipeAll()">Delete everything</button>
   </div>
 </div>
@@ -175,28 +194,32 @@ const WORD_LIMIT = 1500;
 
 let db;
 let saveTimer;
+let viewingDate; // ISO key of the day currently shown
 
 // ---- Date helpers ----
 const pad = n => String(n).padStart(2, '0');
-const todayKey = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-};
-const yesterdayKey = () => {
-  const d = new Date(); d.setDate(d.getDate()-1);
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-};
-const fullDate = (key) => {
-  const [y,m,d] = key.split('-').map(Number);
-  const dt = new Date(y, m-1, d);
-  return dt.toLocaleDateString('en-US', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-  });
-};
+const dateToKey = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const keyToDate = (k) => { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d); };
+const todayKey = () => dateToKey(new Date());
+const shiftKey = (key, days) => { const d = keyToDate(key); d.setDate(d.getDate()+days); return dateToKey(d); };
+const fullDate = (key) => keyToDate(key).toLocaleDateString('en-US', {
+  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+});
 const filenameDate = (key) => fullDate(key).replace(/,/g,'').replace(/\s+/g,'-');
 
-// Editable if today or yesterday (24hr grace)
-const isEditable = (key) => key === todayKey() || key === yesterdayKey();
+// Editable window: yesterday, today, tomorrow
+function isEditable(key) {
+  const today = todayKey();
+  return key === today || key === shiftKey(today, -1) || key === shiftKey(today, 1);
+}
+function editStatus(key) {
+  const today = todayKey();
+  if (key === today) return 'today';
+  if (key === shiftKey(today, -1)) return 'yesterday — editable until end of today';
+  if (key === shiftKey(today, 1)) return 'tomorrow — you can pre-write';
+  if (keyToDate(key) < keyToDate(shiftKey(today, -1))) return 'locked';
+  return 'future — not yet available';
+}
 
 // ---- IndexedDB ----
 function openDB() {
@@ -212,7 +235,6 @@ function openDB() {
     req.onerror = e => reject(e);
   });
 }
-
 function getEntry(date) {
   return new Promise((resolve) => {
     const tx = db.transaction(STORE, 'readonly');
@@ -221,7 +243,6 @@ function getEntry(date) {
     req.onerror = () => resolve(null);
   });
 }
-
 function saveEntry(date, text) {
   return new Promise((resolve) => {
     const now = Date.now();
@@ -230,18 +251,15 @@ function saveEntry(date, text) {
     const getReq = store.get(date);
     getReq.onsuccess = () => {
       const existing = getReq.result;
-      const entry = {
-        date,
-        text,
+      store.put({
+        date, text,
         createdAt: existing?.createdAt || now,
         updatedAt: now
-      };
-      store.put(entry);
+      });
     };
     tx.oncomplete = () => resolve();
   });
 }
-
 function getAllEntries() {
   return new Promise((resolve) => {
     const tx = db.transaction(STORE, 'readonly');
@@ -254,7 +272,6 @@ function getAllEntries() {
     req.onerror = () => resolve([]);
   });
 }
-
 function deleteAll() {
   return new Promise((resolve) => {
     const tx = db.transaction(STORE, 'readwrite');
@@ -269,13 +286,54 @@ function countWords(text) {
   return t ? t.split(/\s+/).length : 0;
 }
 
-async function renderToday() {
-  const key = todayKey();
-  document.getElementById('todayTitle').textContent = fullDate(key);
-  const entry = await getEntry(key);
+async function renderView() {
+  document.getElementById('dateTitle').textContent = fullDate(viewingDate);
+  const entry = await getEntry(viewingDate);
   const editor = document.getElementById('editor');
+  const lockedNote = document.getElementById('lockedNote');
+  const subtitle = document.getElementById('subtitle');
+
   editor.value = entry?.text || '';
   updateWordCount();
+
+  const editable = isEditable(viewingDate);
+  editor.disabled = !editable;
+
+  const status = editStatus(viewingDate);
+  const today = todayKey();
+
+  if (viewingDate === today) {
+    subtitle.textContent = '"You could leave life right now. Let that determine what you do and say and think."';
+    subtitle.style.display = '';
+    lockedNote.style.display = 'none';
+    editor.placeholder = 'Begin...';
+  } else if (viewingDate === shiftKey(today, -1)) {
+    subtitle.style.display = 'none';
+    lockedNote.textContent = 'Yesterday — editable until end of today.';
+    lockedNote.style.display = '';
+    editor.placeholder = 'Yesterday was blank.';
+  } else if (viewingDate === shiftKey(today, 1)) {
+    subtitle.style.display = 'none';
+    lockedNote.textContent = 'Tomorrow — pre-write for the day ahead.';
+    lockedNote.style.display = '';
+    editor.placeholder = 'Something to remember for tomorrow...';
+  } else if (keyToDate(viewingDate) > keyToDate(today)) {
+    subtitle.style.display = 'none';
+    lockedNote.textContent = 'Not yet available.';
+    lockedNote.style.display = '';
+    editor.placeholder = '';
+  } else {
+    subtitle.style.display = 'none';
+    lockedNote.textContent = 'Locked. Read only.';
+    lockedNote.style.display = '';
+    editor.placeholder = '(no entry)';
+  }
+
+  // Disable "next" if going past tomorrow, "prev" always allowed
+  document.getElementById('nextBtn').disabled =
+    keyToDate(viewingDate) >= keyToDate(shiftKey(today, 1));
+
+  await renderPast();
 }
 
 function updateWordCount() {
@@ -288,23 +346,20 @@ function updateWordCount() {
 
 async function renderPast() {
   const entries = await getAllEntries();
-  const today = todayKey();
-  const past = entries.filter(e => e.date !== today);
+  const past = entries.filter(e => e.date !== viewingDate);
   const list = document.getElementById('pastList');
 
   if (past.length === 0) {
-    list.innerHTML = '<div class="empty">No past entries yet.</div>';
+    list.innerHTML = '<div class="empty">No other entries yet.</div>';
     return;
   }
-
   list.innerHTML = past.map(e => {
-    const editable = isEditable(e.date);
-    const status = editable ? 'editable until end of tomorrow' : 'locked';
+    const status = editStatus(e.date);
     const preview = escapeHtml(e.text || '(empty)');
     return `
-      <div class="past-entry" data-date="${e.date}">
+      <div class="past-entry" onclick="jumpTo('${e.date}')">
         <div class="past-date">${fullDate(e.date)}</div>
-        <div class="past-preview" onclick="this.classList.toggle('expanded')">${preview}</div>
+        <div class="past-preview">${preview}</div>
         <div class="status">${status}</div>
       </div>
     `;
@@ -315,31 +370,48 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-// ---- Editor events ----
+// ---- Navigation ----
+function navigate(days) {
+  viewingDate = shiftKey(viewingDate, days);
+  renderView();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function jumpTo(key) {
+  viewingDate = key;
+  renderView();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function goToday() {
+  closeMenu();
+  viewingDate = todayKey();
+  renderView();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ---- Editor ----
 function setupEditor() {
   const editor = document.getElementById('editor');
   editor.addEventListener('input', () => {
     updateWordCount();
+    if (editor.disabled) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
-      await saveEntry(todayKey(), editor.value);
+      await saveEntry(viewingDate, editor.value);
       showSaved();
     }, 500);
   });
 }
-
 function showSaved() {
   const el = document.getElementById('saveIndicator');
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 1200);
 }
 
-// ---- Menu / Export / Wipe ----
+// ---- Menu / Export ----
 function openMenu() { document.getElementById('menuOverlay').classList.add('open'); }
 function closeMenu() { document.getElementById('menuOverlay').classList.remove('open'); }
 
 async function tryDownload(filename, text) {
-  // Try Claude runtime downloads capability first
   try {
     const dl = await window.claude?.use?.('downloads');
     if (dl) {
@@ -347,9 +419,7 @@ async function tryDownload(filename, text) {
       await dl.save({ filename, data: blob });
       return;
     }
-  } catch (e) { /* fall through */ }
-
-  // Fallback: standard blob download
+  } catch (e) {}
   const blob = new Blob([text], {type: 'text/plain'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -357,27 +427,22 @@ async function tryDownload(filename, text) {
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
-
-async function exportToday() {
+async function exportCurrent() {
   closeMenu();
-  const key = todayKey();
-  const entry = await getEntry(key);
+  const entry = await getEntry(viewingDate);
   const text = entry?.text || '';
   if (!text.trim()) { alert('Nothing to export yet.'); return; }
-  const body = `${fullDate(key)}\n\n${text}\n`;
-  await tryDownload(`${filenameDate(key)}.txt`, body);
+  const body = `${fullDate(viewingDate)}\n\n${text}\n`;
+  await tryDownload(`${filenameDate(viewingDate)}.txt`, body);
 }
-
 async function exportAll() {
   closeMenu();
   const entries = await getAllEntries();
   if (entries.length === 0) { alert('No entries to export.'); return; }
   entries.sort((a,b) => a.date.localeCompare(b.date));
   const body = entries.map(e => `${fullDate(e.date)}\n\n${e.text || '(empty)'}\n`).join('\n\n---\n\n');
-  const today = todayKey();
-  await tryDownload(`Meditations-all-${today}.txt`, body);
+  await tryDownload(`Meditations-all-${todayKey()}.txt`, body);
 }
-
 async function wipeAll() {
   closeMenu();
   if (!confirm('Delete every entry permanently? This cannot be undone.')) return;
@@ -391,20 +456,21 @@ async function wipeAll() {
 // ---- Init ----
 (async function init() {
   db = await openDB();
-  await renderToday();
-  await renderPast();
+  viewingDate = todayKey();
+  await renderView();
   setupEditor();
-
-  // Re-render past every minute so lock status updates around midnight
   setInterval(renderPast, 60000);
-  // If date rolls over while app is open, refresh today
   let currentDay = todayKey();
   setInterval(() => {
     const now = todayKey();
     if (now !== currentDay) {
       currentDay = now;
-      renderToday();
-      renderPast();
+      if (viewingDate === shiftKey(now, -1) || viewingDate === now) {
+        viewingDate = now;
+        renderView();
+      } else {
+        renderPast();
+      }
     }
   }, 30000);
 })();
